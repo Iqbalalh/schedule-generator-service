@@ -107,16 +107,19 @@ def schedule_classes(data):
                     f"Room_{room['id']}_Single_Class_{day['id']}_{session['id']}",
                 )
 
-    # 3. Untuk menggunakan ruangan, kapasitas ruangan harus lebih besar atau sama dengan kapasitas mahasiswa pada suatu kelas
+    # 3. Untuk menggunakan ruangan kelas, kapasitas ruangan harus lebih besar atau sama dengan kapasitas mahasiswa pada suatu kelas
     for classLecturer in classLecturers:
+        subject_type_id = classLecturer["class"]["subSubject"]["subjectTypeId"]
         for room in rooms:
             for day in days:
                 for session in sessions:
-                    model += (
-                        x[classLecturer["id"], room["id"], day["id"], session["id"]] * classLecturer["class"]["classCapacity"]
-                        <= room["roomCapacity"],
-                        f"Room_Capacity_{classLecturer['id']}_{room['id']}_{day['id']}_{session['id']}",
-                    )
+                    if subject_type_id in [1, 2]:  # Apply only for Theory or Response
+                        model += (
+                            x[classLecturer["id"], room["id"], day["id"], session["id"]] * classLecturer["class"]["classCapacity"]
+                            <= room["roomCapacity"],
+                            f"Room_Capacity_{classLecturer['id']}_{room['id']}_{day['id']}_{session['id']}",
+                        )
+                    # Practicum (subjectTypeId == 3) is allowed to bypass this constraint
 
     # 4. Tiap dosen hanya boleh mengajar maksimal tiga sesi dalam sehari
     for lecturer in lecturers:
@@ -162,15 +165,18 @@ def schedule_classes(data):
 
         for day in days:
             for session in sessions:
-                # Prevent the lecturer (as primary or secondary) from having more than one class in the same day and session
+                # Berlaku hanya untuk kelas teori (subjectTypeId == 1)
                 model += (
                     lpSum(
                         x[classLecturer["id"], room["id"], day["id"], session["id"]]
                         for classLecturer in classLecturers
                         for room in rooms
-                        if classLecturer["primaryLecturerId"] == lecturer_id or classLecturer["secondaryLecturerId"] == lecturer_id
+                        if (
+                            (classLecturer["primaryLecturerId"] == lecturer_id or classLecturer["secondaryLecturerId"] == lecturer_id)
+                            and classLecturer["class"]["subSubject"]["subjectTypeId"] == 1  # Hanya untuk Teori
+                        )
                     ) <= 1,
-                    f"Lecturer_{lecturer_id}_No_Double_Booking_{day['id']}_{session['id']}",
+                    f"Lecturer_{lecturer_id}_No_Double_Booking_Theory_{day['id']}_{session['id']}",
                 )
                 
     for classLecturer in classLecturers:
@@ -208,6 +214,18 @@ def schedule_classes(data):
                                 f"Block_TheoryResponse_In_Standalone_Practicum_Room_{classLecturer['id']}_{room['id']}_{day['id']}_{session['id']}"
                             )
 
+    # 10. Tidak boleh ada duplikasi untuk setiap pertemuan
+    for classLecturer in classLecturers:
+        model += (
+            lpSum(
+                x[classLecturer["id"], room["id"], day["id"], session["id"]]
+                for room in rooms
+                for day in days
+                for session in sessions
+            ) <= 1,
+            f"No_Duplication_ClassLecturer_{classLecturer['id']}",
+        )
+    
     # Solve the model
     model.solve()
 
