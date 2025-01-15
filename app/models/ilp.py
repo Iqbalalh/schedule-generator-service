@@ -125,8 +125,15 @@ def schedule_classes(data):
     for lecturer in lecturers:
         for day in days:
             model += (
-                lpSum(y[lecturer["id"], day["id"], session["id"]] for session in sessions) <= 3,
-                f"Lecturer_{lecturer['id']}_Max_3_Sessions_{day['id']}",
+                lpSum(
+                    x[classLecturer["id"], room["id"], day["id"], session["id"]]
+                    for classLecturer in classLecturers
+                    for room in rooms
+                    for session in sessions
+                    if (classLecturer["primaryLecturerId"] == lecturer["id"] or classLecturer["secondaryLecturerId"] == lecturer["id"])
+                    and classLecturer["class"]["subSubject"]["subjectTypeId"] == 1  # Only for Theory classes
+                ) <= 3,
+                f"Lecturer_{lecturer['id']}_Max_3_Theory_Sessions_{day['id']}",
             )
     
     # 5. Pada hari Jumat, perkuliahan hanya akan dijadwalkan pada sesi 1, 2, 4, dan 5
@@ -146,20 +153,43 @@ def schedule_classes(data):
     for classLecturer in classLecturers:
         class_name_id = classLecturer["class"]["studyProgramClassId"]
         semester_id = classLecturer["class"]["subSubject"]["subject"]["semesterId"]
-        class_groups[(class_name_id, semester_id)].append(classLecturer["id"])
+        class_id = classLecturer["classId"]
         
-    for (class_name_id, semester_id), lecturer_ids in class_groups.items():
+        # Group by class_id to differentiate even within the same study program and semester
+        class_groups[(class_name_id, semester_id, class_id)].append(classLecturer["id"])
+
+    for (class_name_id, semester_id, class_id), lecturer_ids in class_groups.items():
         for day in days:
             for session in sessions:
-                # Sum the scheduled classes for this combination
-                model += (
-                    lpSum(x[lecturer_id, room["id"], day["id"], session["id"]]
-                        for lecturer_id in lecturer_ids
-                        for room in rooms) <= 1,
-                    f"Unique_Class_Semester_{class_name_id}_{semester_id}_Day_{day['id']}_Session_{session['id']}",
-                )
+                # Apply constraints if there are multiple lecturers for the same class
+                if len(lecturer_ids) > 1:
     
-    # 7.  Tiap dosen tidak boleh mengajar lebih dari satu kelas pada waktu yang sama
+    # 7. Untuk kelas praktikum dijadwalkan di hari dan sesi yang sama tetapi berbeda ruangan
+                    for lecturer_id1 in lecturer_ids:
+                        for lecturer_id2 in lecturer_ids:
+                            if lecturer_id1 < lecturer_id2:
+                                model += (
+                                    lpSum(
+                                        x[lecturer_id1, room["id"], day["id"], session["id"]]
+                                        for room in rooms
+                                    ) == lpSum(
+                                        x[lecturer_id2, room["id"], day["id"], session["id"]]
+                                        for room in rooms
+                                    ),
+                                    f"Same_Day_Session_{class_id}_{lecturer_id1}_{lecturer_id2}_{day['id']}_{session['id']}",
+                                )
+
+                    for lecturer_id1 in lecturer_ids:
+                        for lecturer_id2 in lecturer_ids:
+                            if lecturer_id1 < lecturer_id2:
+                                for room in rooms:
+                                    model += (
+                                        x[lecturer_id1, room["id"], day["id"], session["id"]] +
+                                        x[lecturer_id2, room["id"], day["id"], session["id"]] <= 1,
+                                        f"Different_Room_{class_id}_{lecturer_id1}_{lecturer_id2}_{room['id']}_{day['id']}_{session['id']}",
+                                    )
+
+    # 8.  Tiap dosen tidak boleh mengajar lebih dari satu kelas pada waktu yang sama
     for lecturer in lecturers:
         lecturer_id = lecturer["id"]
 
@@ -181,40 +211,40 @@ def schedule_classes(data):
                 
     for classLecturer in classLecturers:
         subject_type_id = classLecturer["class"]["subSubject"]["subjectTypeId"]
-        
+        subject_category = classLecturer["class"]["subSubject"]["subject"]["subjectCategory"]
+
         for room in rooms:
             for day in days:
                 for session in sessions:
-                    
-                    if room["isTheory"] and room["isPracticum"]:
-                        pass
 
-    # 8. Ruang lab hanya dapat digunakan oleh kelas dengan tipe Praktikum                
-                    elif room["isPracticum"]:
+    # 9. Mata kuliah wajib, kelas teori tidak boleh online
+                    if room["isResponse"] and room["isPracticum"]:
+                        if subject_category == "W":  # Replace "Theory" with the actual value for theory subjectCategory
+                            model += (
+                                x[classLecturer["id"], room["id"], day["id"], session["id"]] == 0,
+                                f"Block_Theory_In_PracticumResponse_Room_{classLecturer['id']}_{room['id']}_{day['id']}_{session['id']}"
+                            )
+    # 10. Kelas Online dapat menampung semua kecual teori wajib
+                    elif room["isTheory"] and room["isResponse"] and room["isPracticum"]:
+                        pass
+                    
+    # 11. Ruangan lab hanya untuk kelas praktikum
+                    elif room["isPracticum"] and not room["isTheory"] and not room["isResponse"] :
                         if subject_type_id != 3:
-                            # Strictly block non-practicum classes from practicum rooms
                             model += (
                                 x[classLecturer["id"], room["id"], day["id"], session["id"]] == 0,
                                 f"Block_NonPracticum_In_Practicum_Room_{classLecturer['id']}_{room['id']}_{day['id']}_{session['id']}"
                             )
-
-    # 9. Ruang kelas hanya dapat digunakan oleh kelas dengan tipe Teori atau Responsi
-                    elif room["isTheory"] or room["isResponse"]:
+                            
+    # 12. Ruangan kelas hanya untuk kelas teori dan responsi
+                    elif room["isTheory"] and room["isResponse"] and not room["isPracticum"]:
                         if subject_type_id not in [1, 2]:
-                            # Strictly block non-theory/response classes from theory/response rooms
                             model += (
                                 x[classLecturer["id"], room["id"], day["id"], session["id"]] == 0,
                                 f"Block_NonTheoryResponse_In_TheoryResponse_Room_{classLecturer['id']}_{room['id']}_{day['id']}_{session['id']}"
                             )
                             
-                    elif room["isPracticum"] and not room["isTheory"] and not room["isResponse"]:
-                        if subject_type_id in [1, 2]:  # Theory or Response classes
-                            model += (
-                                x[classLecturer["id"], room["id"], day["id"], session["id"]] == 0,
-                                f"Block_TheoryResponse_In_Standalone_Practicum_Room_{classLecturer['id']}_{room['id']}_{day['id']}_{session['id']}"
-                            )
-
-    # 10. Tidak boleh ada duplikasi untuk setiap pertemuan
+    # 13. Tidak boleh ada duplikasi untuk setiap pertemuan
     for classLecturer in classLecturers:
         model += (
             lpSum(
@@ -225,7 +255,7 @@ def schedule_classes(data):
             ) <= 1,
             f"No_Duplication_ClassLecturer_{classLecturer['id']}",
         )
-    
+        
     # Solve the model
     model.solve()
 
