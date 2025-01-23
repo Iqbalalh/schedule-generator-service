@@ -81,7 +81,7 @@ def schedule_classes(data):
             if room["roomCapacity"] > classLecturer["class"]["classCapacity"]
         )
         
-        # 2. Minimalkan jumlah sesi berturut-turut untuk dosen dengan maksimal dua sesi berturut-turut per hari
+        # 2. Minimalkan jumlah sesi berturut-turut untuk dosen
         + lpSum(
             y[lecturer["id"], day["id"], session["id"]] for lecturer in lecturers for day in days for session in sessions
         ),
@@ -228,12 +228,10 @@ def schedule_classes(data):
         for room in rooms:
             for day in days:
                 for session in sessions:
-                    
-    # 9. Kelas Online dapat menampung semua kecuali teori wajib
                     if room["roomType"] == "Online":
                         pass
                     
-    # 10. Ruangan lab hanya untuk kelas praktikum
+    # 9. Ruangan lab hanya untuk kelas praktikum
                     elif room["roomType"] == "Lab" :
                         if subject_type_id != 3:
                             model += (
@@ -241,7 +239,7 @@ def schedule_classes(data):
                                 f"Block_NonPracticum_In_Practicum_Room_{classLecturer['id']}_{room['id']}_{day['id']}_{session['id']}"
                             )
                             
-    # 11. Ruangan kelas hanya untuk kelas teori dan responsi
+    # 10. Ruangan kelas hanya untuk kelas teori dan responsi
                     elif room["roomType"] == "Kelas":
                         if subject_type_id not in [1, 2]:
                             model += (
@@ -249,7 +247,7 @@ def schedule_classes(data):
                                 f"Block_NonTheoryResponse_In_TheoryResponse_Room_{classLecturer['id']}_{room['id']}_{day['id']}_{session['id']}"
                             )
                             
-    # 12. Mata kuliah wajib pertemuan teori tidak boleh online 
+    # 11. Mata kuliah wajib pertemuan teori tidak boleh online 
                     elif room["roomType"] == "Online" and subject_type_id == 1 and subject_category == "W":
                         model += (
                             x[classLecturer["id"], room["id"], day["id"], session["id"]] == 0,
